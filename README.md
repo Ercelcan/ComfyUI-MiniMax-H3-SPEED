@@ -1,15 +1,17 @@
 # ComfyUI MiniMax-H3 SPEED Sampler
 
-A single ComfyUI node that runs [SPEED](https://github.com/howardhx/speed) (Spectral Progressive Diffusion) on MiniMax-H3's packed video+audio latent. Replaces KSAMPLER + SamplerCustomAdvanced.
+⚠️ **Noncommercial license** — see [LICENSE.md](LICENSE.md). Free to use for personal/learning projects. Contact for commercial use.
 
-## What it does
+A ComfyUI node that runs [SPEED](https://github.com/howardhx/speed) (Spectral Progressive Diffusion) on MiniMax-H3's packed video+audio latent. Replaces KSAMPLER + SamplerCustomAdvanced.
 
-Runs multi-stage progressive-resolution diffusion: coarse pass first, then DCT-expand to full resolution and continue denoising. Each stage issues its own `guider.sample()` so the model always sees the right buffer size.
+## Why use this?
+
+Standard diffusion generates at full resolution the whole time. SPEED starts coarse (half or quarter resolution), then progressively refines up to full. You get similar quality with less VRAM and faster generation because most steps run on smaller buffers.
 
 ```
 MiniMaxH3SPEEDSampler
   noise        ← RandomNoise
-  guider       ← BasicGuider
+  guider       ← BasicGuider (UNETLoader + MiniMaxH3ImageToVideo)
   sigmas       ← BasicScheduler (default 20 steps)
   latent_image ← MiniMaxH3ImageToVideo
   preset       ← "half_then_full" (default)
@@ -24,35 +26,33 @@ git clone https://github.com/StanLukuvka/H3-SPEED.git ComfyUI/custom_nodes/H3-SP
 # restart ComfyUI
 ```
 
-Requires MiniMax-H3 plugin.
+**Required:** MiniMax-H3 plugin ([ComfyUI-MiniMax-H3](https://github.com/StanLukuvka/ComfyUI-MiniMax-H3), requires ComfyUI 0.32.0+).
 
 ## Usage
 
-Load `workflows/video_minimax_h3_t2v_speed.json`. The default `half_then_full` preset works out of the box.
+After cloning, the workflow is at `ComfyUI/custom_nodes/H3-SPEED/workflows/video_minimax_h3_t2v_speed.json`. Load it via ComfyUI's workflow browser (Workflow → Open).
+
+The default `half_then_full` preset works out of the box. No changes needed.
 
 Options:
 - `preset` — see table below
-- `transition_mode` — `explicit` (hardcoded for MVP)
 
-### Presets (with default 20-step sigma schedule)
+### Presets (default 20-step schedule)
 
-Each preset defines how many denoising steps run at each resolution. The sigma schedule controls total steps; the preset controls where the resolution switches happen.
+Each preset splits denoising across resolutions. More stages = more time at low res = faster but potentially softer mid-frequency detail.
 
-| Preset | Coarse steps | Resolution path | Full-res steps | Total steps |
-|--------|-------------|----------------|----------------|-------------|
-| `half_then_full` | 5 @ 50% | 50% → 100% | 15 | 20 |
-| `three_quarter_then_full` | 10 @ 75% | 75% → 100% | 10 | 20 |
-| `quarter_half_full` | 3 @ 25%, 2 @ 50% | 25% → 50% → 100% | 15 | 20 |
-| `aggressive` | 3 @ 25%, 5 @ 75% | 25% → 75% → 100% | 12 | 20 |
-| `quarter_half_3q_full` | 3 @ 25%, 2 @ 50%, 3 @ 75% | 25% → 50% → 75% → 100% | 12 | 20 |
+| Preset | Steps @ each stage | Outcome |
+|--------|-------------------|---------|
+| `half_then_full` | 5 @ 50%, 15 @ 100% | Default. Good balance. |
+| `three_quarter_then_full` | 10 @ 75%, 10 @ 100% | Fastest. Fewer coarse steps, but may miss fine detail. |
+| `quarter_half_full` | 3 @ 25%, 2 @ 50%, 15 @ 100% | Higher quality. More refinement passes. |
+| `aggressive` | 3 @ 25%, 5 @ 75%, 12 @ 100% | Skips 50% stage. Fast but loses mid-frequency detail. |
+| `quarter_half_3q_full` | 3 @ 25%, 2 @ 50%, 3 @ 75%, 12 @ 100% | Slowest. Highest quality. All intermediate resolutions. |
 
 **How to choose:**
-- **Speed** → `three_quarter_then_full` (fewest coarse steps, most full-res work)
-- **Quality** → `quarter_half_3q_full` (most resolution transitions, slowest)
-- **Default** → `half_then_full` (good balance, proven calibrated)
-- **Fast & decent** → `half_then_full` is already the sweet spot for most prompts
-
-The coarse stages are cheap — fewer pixels to denoise. The full-res stage is where the detail lives. More stages = more time spent cheap, but each transition risks losing mid-frequency detail if the DCT expand doesn't seed it well.
+- **Speed** → `three_quarter_then_full` (fastest, decent quality)
+- **Quality** → `quarter_half_3q_full` (most stages, slowest)
+- **Default** → `half_then_full` (proven sweet spot)
 
 ## Repository structure
 
@@ -61,8 +61,8 @@ H3-SPEED/
 ├── minimax_h3_speed/
 │   ├── config.py              — presets, transition steps, SpeedConfig
 │   ├── h3_runtime.py          — multi-stage diffusion loop
-│   ├── spectral.py            — DCT expand (2D orthonormal DCT-II)
-│   ├── flow.py                — sigma alignment, audio transition math
+│   ├── spectral.py            — resolution expansion math
+│   ├── flow.py                — sigma alignment, audio handling
 │   └── tests/                 — 22 passing tests
 ├── sampler_node.py            — ComfyUI node definition
 └── workflows/
