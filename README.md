@@ -41,11 +41,11 @@ Each preset defines how many stages the denoising runs through, and at what reso
 
 | Preset | Resolution path | When to use |
 |--------|----------------|-------------|
-| `half_then_full` | 50% → 100% | Default. Good balance of speed/quality. |
-| `three_quarter_then_full` | 75% → 100% | Fastest option. Less coarse refinement, more full-res steps. |
-| `quarter_half_full` | 25% → 50% → 100% | Slower, higher quality. Good for long videos. |
-| `aggressive` | 25% → 75% → 100% | Skips the 50% stage. Fast but may lose mid-freq detail. |
-| `quarter_half_3q_full` | 25% → 50% → 75% → 100% | Slowest, highest quality. All intermediate resolutions. |
+| `half_then_full` | 50% → 100% | Default. |
+| `three_quarter_then_full` | 75% → 100% | Fastest option.  |
+| `quarter_half_full` | 25% → 50% → 100% | Slower, higher quality? |
+| `aggressive` | 25% → 75% → 100% | Skips the 50% stage. Fast but probably loses mid-freq detail. |
+| `quarter_half_3q_full` | 25% → 50% → 75% → 100% | Untested. |
 
 ## Structure
 

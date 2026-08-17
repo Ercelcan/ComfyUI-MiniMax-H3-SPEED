@@ -61,12 +61,15 @@ class MiniMaxH3SPEEDSampler:
         transition_steps = DEFAULT_TRANSITION_STEPS[preset]
         n_stages = len(scales)
         n_sigmas = len(sigmas)
-        # Need at least 2 sigmas per stage (one coarse + one transition).
-        min_required = n_stages * 2
+        # Need at least 2 sigmas per stage, plus enough room for transition steps.
+        # max(transition_steps) is the last boundary index, so we need that + 1
+        # to cover the final stage's sigma slice.
+        min_required = max(n_stages * 2, max(transition_steps) + 1)
         if n_sigmas < min_required:
             raise ValueError(
                 f"sigma schedule too short: got {n_sigmas} sigmas, need "
-                f"at least {min_required} for {n_stages} scale levels. "
+                f"at least {min_required} for preset '{preset}' with "
+                f"transition steps {transition_steps}. "
                 f"Increase steps to >= {min_required - 1}."
             )
         # Explicit mode only for now — delta_custom requires H3-specific
