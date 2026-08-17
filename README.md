@@ -4,16 +4,15 @@ A single ComfyUI node that runs [SPEED](https://github.com/howardhx/speed) (Spec
 
 ## What it does
 
-Runs multi-stage progressive-resolution diffusion: coarse pass first, then DCT-expand to full resolution and continue denoising. 
-Each stage issues its own `guider.sample()` so the model always sees the right buffer size.
+Runs multi-stage progressive-resolution diffusion: coarse pass first, then DCT-expand to full resolution and continue denoising. Each stage issues its own `guider.sample()` so the model always sees the right buffer size.
 
 ```
 MiniMaxH3SPEEDSampler
   noise        ← RandomNoise
   guider       ← BasicGuider
-  sigmas       ← BasicScheduler
+  sigmas       ← BasicScheduler (default 20 steps)
   latent_image ← MiniMaxH3ImageToVideo
-  preset       ← "2_stage_half" (default)
+  preset       ← "half_then_full" (default)
                 ↓
   output → VAEDecode + VAEDecodeAudio → CreateVideo → SaveVideo
 ```
@@ -32,32 +31,40 @@ Requires MiniMax-H3 plugin.
 Load `workflows/video_minimax_h3_t2v_speed.json`. The default `half_then_full` preset works out of the box.
 
 Options:
-- `preset` — scale ladder (see below)
+- `preset` — see table below
 - `transition_mode` — `explicit` (hardcoded for MVP)
 
-### Presets
+### Presets (with default 20-step sigma schedule)
 
-Each preset defines how many stages the denoising runs through, and at what resolution fractions. More stages = more time at low res = faster but coarser. Fewer stages = less coarse work = slower but higher quality.
+Each preset defines how many denoising steps run at each resolution. The sigma schedule controls total steps; the preset controls where the resolution switches happen.
 
-| Preset | Resolution path | When to use |
-|--------|----------------|-------------|
-| `half_then_full` | 50% → 100% | Default. |
-| `three_quarter_then_full` | 75% → 100% | Fastest option.  |
-| `quarter_half_full` | 25% → 50% → 100% | Slower, higher quality? |
-| `aggressive` | 25% → 75% → 100% | Skips the 50% stage. Fast but probably loses mid-freq detail. |
-| `quarter_half_3q_full` | 25% → 50% → 75% → 100% | Untested. |
+| Preset | Coarse steps | Resolution path | Full-res steps | Total steps |
+|--------|-------------|----------------|----------------|-------------|
+| `half_then_full` | 5 @ 50% | 50% → 100% | 15 | 20 |
+| `three_quarter_then_full` | 10 @ 75% | 75% → 100% | 10 | 20 |
+| `quarter_half_full` | 3 @ 25%, 2 @ 50% | 25% → 50% → 100% | 15 | 20 |
+| `aggressive` | 3 @ 25%, 5 @ 75% | 25% → 75% → 100% | 12 | 20 |
+| `quarter_half_3q_full` | 3 @ 25%, 2 @ 50%, 3 @ 75% | 25% → 50% → 75% → 100% | 12 | 20 |
 
-## Structure
+**How to choose:**
+- **Speed** → `three_quarter_then_full` (fewest coarse steps, most full-res work)
+- **Quality** → `quarter_half_3q_full` (most resolution transitions, slowest)
+- **Default** → `half_then_full` (good balance, proven calibrated)
+- **Fast & decent** → `half_then_full` is already the sweet spot for most prompts
+
+The coarse stages are cheap — fewer pixels to denoise. The full-res stage is where the detail lives. More stages = more time spent cheap, but each transition risks losing mid-frequency detail if the DCT expand doesn't seed it well.
+
+## Repository structure
 
 ```
 H3-SPEED/
 ├── minimax_h3_speed/
-│   ├── config.py              — presets, transition steps
+│   ├── config.py              — presets, transition steps, SpeedConfig
 │   ├── h3_runtime.py          — multi-stage diffusion loop
-│   ├── spectral.py            — DCT expand
-│   ├── flow.py                — transition math
+│   ├── spectral.py            — DCT expand (2D orthonormal DCT-II)
+│   ├── flow.py                — sigma alignment, audio transition math
 │   └── tests/                 — 22 passing tests
-├── sampler_node.py            — ComfyUI node
+├── sampler_node.py            — ComfyUI node definition
 └── workflows/
     └── video_minimax_h3_t2v_speed.json
 ```
@@ -68,11 +75,8 @@ H3-SPEED/
 PYTHONPATH=minimax_h3_speed python -m pytest minimax_h3_speed/tests/ -q
 ```
 
-## TODO
-
-Currently this is a proof of concept that naive implements SPEED.
-Full paper implementation is still a work in progress.
-
 ## License
 
 PolyForm Noncommercial 1.0.0 — see [LICENSE.md](LICENSE.md).
+
+Canonical SPEED: [howardhx/speed](https://github.com/howardhx/speed).
