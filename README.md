@@ -4,7 +4,8 @@ A single ComfyUI node that runs [SPEED](https://github.com/howardhx/speed) (Spec
 
 ## What it does
 
-Runs multi-stage progressive-resolution diffusion: coarse pass first, then DCT-expand to full resolution and continue denoising. Each stage issues its own `guider.sample()` so the model always sees the right buffer size.
+Runs multi-stage progressive-resolution diffusion: coarse pass first, then DCT-expand to full resolution and continue denoising. 
+Each stage issues its own `guider.sample()` so the model always sees the right buffer size.
 
 ```
 MiniMaxH3SPEEDSampler
@@ -28,11 +29,23 @@ Requires MiniMax-H3 plugin.
 
 ## Usage
 
-Load `workflows/video_minimax_h3_t2v_speed.json`. The default `2_stage_half` preset works out of the box.
+Load `workflows/video_minimax_h3_t2v_speed.json`. The default `half_then_full` preset works out of the box.
 
 Options:
-- `preset` — scale ladder (`2_stage_half`, `3_stage_quarter`, `4_stage_quarter`, `3_stage_aggressive`, `2_stage_3quarter`)
+- `preset` — scale ladder (see below)
 - `transition_mode` — `explicit` (hardcoded for MVP)
+
+### Presets
+
+Each preset defines how many stages the denoising runs through, and at what resolution fractions. More stages = more time at low res = faster but coarser. Fewer stages = less coarse work = slower but higher quality.
+
+| Preset | Resolution path | When to use |
+|--------|----------------|-------------|
+| `half_then_full` | 50% → 100% | Default. Good balance of speed/quality. |
+| `three_quarter_then_full` | 75% → 100% | Fastest option. Less coarse refinement, more full-res steps. |
+| `quarter_half_full` | 25% → 50% → 100% | Slower, higher quality. Good for long videos. |
+| `aggressive` | 25% → 75% → 100% | Skips the 50% stage. Fast but may lose mid-freq detail. |
+| `quarter_half_3q_full` | 25% → 50% → 75% → 100% | Slowest, highest quality. All intermediate resolutions. |
 
 ## Structure
 
@@ -54,6 +67,11 @@ H3-SPEED/
 ```bash
 PYTHONPATH=minimax_h3_speed python -m pytest minimax_h3_speed/tests/ -q
 ```
+
+## TODO
+
+Currently this is a proof of concept that naive implements SPEED.
+Full paper implementation is still a work in progress.
 
 ## License
 

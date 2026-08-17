@@ -269,7 +269,7 @@
       ],
       "properties": {},
       "widgets_values": [
-        "2_stage_half",
+        "half_then_full",
         "explicit"
       ]
     },

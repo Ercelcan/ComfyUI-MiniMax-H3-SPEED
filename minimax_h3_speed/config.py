@@ -11,19 +11,19 @@ from dataclasses import dataclass, replace
 
 
 SCALE_PRESETS: dict[str, tuple[float, ...]] = {
-    "2_stage_half": (0.5, 1.0),
-    "3_stage_quarter": (0.25, 0.5, 1.0),
-    "4_stage_quarter": (0.25, 0.5, 0.75, 1.0),
-    "3_stage_aggressive": (0.25, 0.75, 1.0),
-    "2_stage_3quarter": (0.75, 1.0),
+    "half_then_full": (0.5, 1.0),
+    "quarter_half_full": (0.25, 0.5, 1.0),
+    "quarter_half_3q_full": (0.25, 0.5, 0.75, 1.0),
+    "aggressive": (0.25, 0.75, 1.0),
+    "three_quarter_then_full": (0.75, 1.0),
 }
 
 DEFAULT_TRANSITION_STEPS: dict[str, tuple[int, ...]] = {
-    "2_stage_half": (5,),
-    "3_stage_quarter": (3, 5),
-    "4_stage_quarter": (3, 5, 8),
-    "3_stage_aggressive": (3, 8),
-    "2_stage_3quarter": (10,),
+    "half_then_full": (5,),
+    "quarter_half_full": (3, 5),
+    "quarter_half_3q_full": (3, 5, 8),
+    "aggressive": (3, 8),
+    "three_quarter_then_full": (10,),
 }
 
 NOISE_POLICIES = {"direct_coarse", "coupled_full_grid"}
@@ -130,19 +130,19 @@ def preset_config(preset: str, *, noise="direct_coarse", audio="clock_reindex",
 
 
 def canonical_config() -> SpeedConfig:
-    return preset_config("2_stage_half")
+    return preset_config("half_then_full")
 
 
 def coupled_noise_config() -> SpeedConfig:
-    return preset_config("2_stage_half", noise="coupled_full_grid")
+    return preset_config("half_then_full", noise="coupled_full_grid")
 
 
 def carry_preserve_config() -> SpeedConfig:
-    return preset_config("2_stage_half", audio="carry_preserve")
+    return preset_config("half_then_full", audio="carry_preserve")
 
 
 def no_alignment_config() -> SpeedConfig:
-    return preset_config("2_stage_half", audio="untouched", sigma="no_alignment")
+    return preset_config("half_then_full", audio="untouched", sigma="no_alignment")
 
 
 __all__ = ["SCALE_PRESETS", "DEFAULT_TRANSITION_STEPS", "SpeedConfig",
