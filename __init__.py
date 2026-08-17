@@ -1,0 +1,17 @@
+"""ComfyUI custom node package for MiniMax H3 SPEED.
+
+ComfyUI loads this directory as a package via ``importlib.util.spec_from_file_location``,
+which does NOT put this directory on ``sys.path``. We add it explicitly so the
+node-class module (``sampler_node.py``) is importable by name.
+"""
+
+import os
+import sys
+
+_NODE_DIR = os.path.dirname(os.path.abspath(__file__))
+if _NODE_DIR not in sys.path:
+    sys.path.insert(0, _NODE_DIR)
+
+from sampler_node import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]

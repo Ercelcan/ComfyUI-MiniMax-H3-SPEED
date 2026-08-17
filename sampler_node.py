@@ -1,0 +1,101 @@
+"""ComfyUI node definitions for MiniMax-H3 SPEED.
+
+Replaced Ksampler + SamplerCustomAdvanced. SPEED is only developed with euler and SamplerCustomAdvanced only supports one iteration of latent settings at a time.
+TLDR: Default sampler didnt expect you to change the resolution mid flight cause why would it?
+
+SPEED basics: denoise video as low res at low steps as no value is given from making fancy noise at high resolution.
+Then we step increase resolution depending on preset and continue. 
+Audio stays unchanged and done at full resolution. 
+"""
+
+from __future__ import annotations
+
+import comfy.samplers
+from minimax_h3_speed.config import SCALE_PRESETS, DEFAULT_TRANSITION_STEPS, SpeedConfig
+from minimax_h3_speed.h3_runtime import run_progressive_stages
+
+class MiniMaxH3SPEEDSampler:
+    """SPEED progressive-resolution diffusion for MiniMax-H3's packed latent.
+
+    Drop-in replacement for the standard KSAMPLER + SamplerCustomAdvanced
+    pair. Takes (noise, guider, sigmas, latent_image) and runs a multi-stage
+    progressive-resolution diffusion chain.
+
+    """
+
+    DESCRIPTION = (
+        "SPEED progressive-resolution diffusion for MiniMax-H3 packed latents. "
+        "Runs each stage as its own guider.sample() call. low res first until we reach point where information generated matters. then increase resolution"
+        "first preset scale, then DCT-expand + scale-ratio-aligned boundary sigma,"
+        "then full-res pass. Audio is carried through unchanged."
+    )
+    RETURN_TYPES = ("LATENT", "LATENT")
+    RETURN_NAMES = ("output", "denoised_output")
+    FUNCTION = "sample"
+    CATEGORY = "sampling/minimax_h3_speed"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "noise": ("NOISE",),
+                "guider": ("GUIDER",),
+                "sigmas": ("SIGMAS",),
+                "latent_image": ("LATENT",),
+                "preset": (list(SCALE_PRESETS.keys()),),
+                "transition_mode": (["explicit"],),
+                # "transition_mode": (["explicit", "delta_custom"],),
+                # "delta": ("FLOAT", {"default": 0.01, "min": 1e-4, "max": 0.5, "step": 0.001}),
+                # "power_A": ("FLOAT", {"default": 219.48, "min": 0.0, "max": 1e6}),
+                # "power_beta": ("FLOAT", {"default": 2.42, "min": 0.0, "max": 10.0}),
+                # "seed_offset": ("INT", {"default": 10000, "min": 0, "max": 2**31 - 1}),
+            },
+        }
+
+    def sample(self, noise, guider, sigmas, latent_image, preset,
+               transition_mode):
+        # Use the calibrated transition steps from the preset config.
+        # These are tuned per-preset (e.g. 2_stage_half transitions at step 5
+        # out of 20, leaving 15 steps for full-res detail refinement).
+        scales = SCALE_PRESETS[preset]
+        transition_steps = DEFAULT_TRANSITION_STEPS[preset]
+        n_stages = len(scales)
+        n_sigmas = len(sigmas)
+        # Need at least 2 sigmas per stage (one coarse + one transition).
+        min_required = n_stages * 2
+        if n_sigmas < min_required:
+            raise ValueError(
+                f"sigma schedule too short: got {n_sigmas} sigmas, need "
+                f"at least {min_required} for {n_stages} scale levels. "
+                f"Increase steps to >= {min_required - 1}."
+            )
+        # Explicit mode only for now — delta_custom requires H3-specific
+        # power spectrum calibration which is deferred to Phase 5.
+        config = SpeedConfig(
+            scales=scales,
+            transition_steps=transition_steps,
+            transition_mode=transition_mode,
+        )
+        
+
+        return run_progressive_stages(
+            noise,
+            guider,
+            sigmas,
+            latent_image,
+            config,
+            # NOTE: SPEED's kappa alignment and DCT-boundary semantics are
+            # calibrated for Euler. Supporting other samplers requires calibration and changing the underlying math for kappa alignment.
+            # This has been left as an exercise for the reader.
+            sampler=comfy.samplers.sampler_object("euler"),
+            nested_type=comfy.nested_tensor.NestedTensor,
+            disable_pbar=not comfy.utils.PROGRESS_BAR_ENABLED,
+            output_device=None,
+        )
+
+
+NODE_CLASS_MAPPINGS = {"MiniMaxH3SPEEDSampler": MiniMaxH3SPEEDSampler}
+NODE_DISPLAY_NAME_MAPPINGS = {"MiniMaxH3SPEEDSampler": "MiniMax H3 SPEED — Sampler"}
+
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS",
+           "MiniMaxH3SPEEDSampler"]
