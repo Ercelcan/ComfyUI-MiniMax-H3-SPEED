@@ -28,8 +28,8 @@ Tested on a 10-step schedule:
 
 | Mode | Generation Time | Speedup Factor | Time Saved |
 | :--- | :--- | :--- | :--- |
-| **Standard Baseline** | `286s` | 1.00× | 0s |
-| **SPEED Sampler** | **`175s`** | **1.63× (+63% throughput)** | **-111s (~39% faster)** |
+| **Standard Baseline** | `16 Minutes` | 1.00× | 0s |
+| **SPEED Sampler** | **`10 Minutes`** | **1.60× (+60% throughput)** |
 
 ---
 
@@ -37,15 +37,21 @@ Tested on a 10-step schedule:
 
 ## 🎥 Demos & Comparisons
 
-### ⚡ SPEED Sampler (10 Steps — 175 seconds)
+### ⚡ SPEED Sampler (20 Steps + Spectrum — 10 Minutes seconds)
 
-https://github.com/user-attachments/assets/f821907e-b659-4706-a426-993c67f90b42
+
+
+https://github.com/user-attachments/assets/54ed1a83-30c2-4e7b-8ee3-a8f8e6bd3483
+
 
 ---
 
-### ⏱️ Standard Baseline (10 Steps — 286 seconds)
+### ⏱️ Standard Baseline (20 Steps + Spectrum— 16 Minutes seconds)
 
-https://github.com/user-attachments/assets/13b990f4-2195-40a2-9d00-2ccd0bc0ae0b
+
+
+https://github.com/user-attachments/assets/df3bc42e-7608-4a90-9975-da108f9f9af9
+
 
 ---
 
