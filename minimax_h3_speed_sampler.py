@@ -3,7 +3,7 @@
 Supports:
 - Text-to-Video (T2V): Full multi-stage SPEED progressive acceleration (~40% faster).
 - Reference-to-Video (R2V): Full multi-stage SPEED progressive acceleration.
-- Image-to-Video (I2V FL2V Keyframes): Automatic full-grid safe alignment.
+- Image-to-Video (I2V First/Last Frame): Automatic full-grid safe pass with zero shape mismatch.
 """
 
 from __future__ import annotations
@@ -131,21 +131,41 @@ def _active_av_shifts(guider):
     return float(video_shift), float(audio_shift), float(video_shift) / float(audio_shift)
 
 
-def _detect_pixel_anchor_keyframing(guider) -> bool:
-    """Detect if conditioning contains hardcoded spatial keyframe tokens."""
-    conds = getattr(guider, "conds", {})
-    if not isinstance(conds, dict):
+def _has_minimax_keyframes(guider) -> bool:
+    """Deep recursive check to detect First/Last Frame keyframe conditioning in MiniMax-H3."""
+    sources = []
+    for attr in ("conds", "original_conds", "model_options"):
+        val = getattr(guider, attr, None)
+        if val is not None:
+            sources.append(val)
+    
+    patcher = getattr(guider, "model_patcher", None)
+    if patcher is not None:
+        p_opts = getattr(patcher, "model_options", None)
+        if p_opts:
+            sources.append(p_opts)
+
+    def _search(obj, depth=0):
+        if depth > 12:
+            return False
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                k_str = str(k).lower()
+                if any(tag in k_str for tag in ("cond_video_rows", "img_update", "keyframe", "first_frame", "last_frame", "clean_latents", "concat", "minimax")):
+                    return True
+                if isinstance(v, torch.Tensor) and v.ndim >= 2 and v.shape[-1] == 96:
+                    return True
+                if _search(v, depth + 1):
+                    return True
+        elif isinstance(obj, (list, tuple)):
+            for item in obj:
+                if _search(item, depth + 1):
+                    return True
         return False
-    for k, v in conds.items():
-        if isinstance(v, (list, tuple)):
-            for item in v:
-                if isinstance(item, (list, tuple)) and len(item) > 1 and isinstance(item[1], dict):
-                    d = item[1]
-                    for d_key, d_val in d.items():
-                        if d_key in ("cond_video_rows", "img_update", "concat_latent_image", "clean_latents", "keyframes"):
-                            return True
-                        if isinstance(d_val, torch.Tensor) and d_val.ndim >= 2 and d_val.shape[-1] == 96:
-                            return True
+
+    for src in sources:
+        if _search(src):
+            return True
     return False
 
 
@@ -166,32 +186,31 @@ def run_progressive_stages(noise, guider, sigmas: torch.Tensor, latent: dict, co
 
     scales = config.scales
     transition_steps = config.transition_steps
-
     n_stages = len(scales)
+
     full_h, full_w = full_video.shape[-2:]
     stage_hw = [(max(2, round(full_h * s)), max(2, round(full_w * s))) for s in scales]
 
-    # Coarse Stage Setup
     s0_h, s0_w = stage_hw[0]
-    if torch.count_nonzero(full_video) > 0 and (s0_h != full_h or s0_w != full_w):
-        init_video = lowpass_dct(full_video, (s0_h, s0_w))
+
+    # Initialize coarse or full latent matching Stage 1 dimensions
+    if s0_h == full_h and s0_w == full_w:
+        coarse_samples = _pack_tensor(full_video.clone(), torch.zeros_like(full_audio))
+        cur_latent = latent.copy()
+        cur_latent["samples"] = coarse_samples
+        coarse_noise = noise.generate_noise(cur_latent) if hasattr(noise, "generate_noise") else cur_latent["samples"]
     else:
-        init_video = full_video.clone() if (s0_h == full_h and s0_w == full_w) else full_video.new_zeros(full_video.shape[:-2] + (s0_h, s0_w))
+        init_video = lowpass_dct(full_video, (s0_h, s0_w)) if torch.count_nonzero(full_video) > 0 else full_video.new_zeros(full_video.shape[:-2] + (s0_h, s0_w))
+        coarse_samples = _pack_tensor(init_video, torch.zeros_like(full_audio))
+        cur_latent = latent.copy()
+        cur_latent["samples"] = coarse_samples
 
-    coarse_samples = _pack_tensor(init_video, torch.zeros_like(full_audio))
-    cur_latent = latent.copy()
-    cur_latent["samples"] = coarse_samples
-
-    full_noise = None
-    if config.noise_policy == "coupled_full_grid":
-        full_noise = noise.generate_noise(latent) if hasattr(noise, "generate_noise") else noise
-        full_noise_video, full_noise_audio = _unpack_tensor(full_noise)
-        if s0_h != full_h or s0_w != full_w:
+        if config.noise_policy == "coupled_full_grid":
+            full_noise = noise.generate_noise(latent) if hasattr(noise, "generate_noise") else noise
+            full_noise_video, full_noise_audio = _unpack_tensor(full_noise)
             coarse_noise = _pack_tensor(lowpass_dct(full_noise_video, (s0_h, s0_w)), full_noise_audio)
         else:
-            coarse_noise = full_noise
-    else:
-        coarse_noise = noise.generate_noise(cur_latent) if hasattr(noise, "generate_noise") else cur_latent["samples"]
+            coarse_noise = noise.generate_noise(cur_latent) if hasattr(noise, "generate_noise") else cur_latent["samples"]
 
     current_sigmas = sigmas
     stage_start_pub = coarse_noise
@@ -248,7 +267,7 @@ def run_progressive_stages(noise, guider, sigmas: torch.Tensor, latent: dict, co
         del public, internal_video, internal_audio, expanded_video
         comfy.model_management.soft_empty_cache()
 
-    # Final Full-Res Stage
+    # Final Stage
     def final_callback(step, x0, x, total_steps):
         last_capture["x0"] = x0
         last_capture["x"] = x
@@ -361,18 +380,19 @@ class MiniMaxH3SPEEDSampler:
         if total_steps < 1:
             raise ValueError("Sigmas schedule must contain at least 1 step.")
 
-        # Check if hard pixel keyframing (first_frame) is active
-        has_pixel_anchor = _detect_pixel_anchor_keyframing(guider)
-        if sampling_mode == "Full Resolution (I2V Keyframes)" or (sampling_mode == "Auto" and has_pixel_anchor):
-            print("[SPEED Sampler] Info: Detected MiniMax-H3 first/last frame keyframe conditioning. Running full-resolution safe pass.")
+        full_video, _ = _unpack_tensor(latent_image.get("samples"))
+
+        # Deep recursive inspection to detect First/Last Frame FL2V keyframes
+        is_pixel_anchor = _has_minimax_keyframes(guider) or (torch.count_nonzero(full_video) > 0)
+
+        if sampling_mode == "Full Resolution (I2V Keyframes)" or (sampling_mode == "Auto" and is_pixel_anchor):
+            print("[SPEED Sampler] Info: Detected MiniMax-H3 first_frame image anchor. Executing full-resolution safe pass.")
             scales = (1.0,)
             transition_steps = ()
         else:
             scales, transition_steps = calculate_adaptive_steps(
                 preset_name=preset, total_steps=total_steps, coarse_override=coarse_steps_override
             )
-
-        full_video, _ = _unpack_tensor(latent_image.get("samples"))
 
         config = SpeedConfig(
             scales=scales,
