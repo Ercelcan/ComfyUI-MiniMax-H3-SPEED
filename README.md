@@ -14,11 +14,15 @@ Optimized for **Turbo LoRAs (4, 6, 8, 10, 12 steps)** as well as **Standard Sche
 
 ## 🎥 Demos & Comparisons
 
-<!-- Replace these video paths with your uploaded video links or repository assets -->
-| Standard Sampler (10 Steps) | SPEED Sampler (10 Steps — ~39% Faster) |
-| :---: | :---: |
-| <video src="assets/video_without_speed.mp4" controls width="100%"></video> | <video src="assets/video_with_speed.mp4" controls width="100%"></video> |
-| *286 seconds* | *175 seconds (1.63× speedup)* |
+### ⚡ SPEED Sampler (10 Steps — 175 seconds)
+
+https://github.com/user-attachments/assets/f821907e-b659-4706-a426-993c67f90b42
+
+---
+
+### ⏱️ Standard Baseline (10 Steps — 286 seconds)
+
+https://github.com/user-attachments/assets/13b990f4-2195-40a2-9d00-2ccd0bc0ae0b
 
 ---
 
@@ -39,7 +43,8 @@ Place the **`MiniMax H3 SPEED — Sampler`** in your sampling block. It replaces
 
 ### 🖼️ Workflow Screenshot
 <!-- Place your workflow screenshot here -->
-![Workflow Diagram](assets/workflow_screenshot.png)
+<img width="1301" height="633" alt="pythonw_nvlxCCxcJV" src="https://github.com/user-attachments/assets/e8252b08-e347-42d8-b68f-8f359882823c" />
+
 
 ---
 
