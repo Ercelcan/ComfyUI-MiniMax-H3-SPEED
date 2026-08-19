@@ -1,25 +1,69 @@
-# ComfyUI MiniMax-H3 SPEED Sampler
+# ⚡ ComfyUI MiniMax-H3 SPEED Sampler
 
-An adaptive, progressive-resolution diffusion sampler for **MiniMax-H3** (Audio + Video) in ComfyUI. 
+[![ComfyUI](https://img.shields.io/badge/ComfyUI-Custom--Node-blue.svg)](https://github.com/comfyanonymous/ComfyUI)
+[![MiniMax-H3](https://img.shields.io/badge/Model-MiniMax--H3-orange.svg)](https://huggingface.co/Comfy-Org/MiniMax-H3)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-By calculating the initial composition and camera motion at coarse resolution (e.g. 50%) and dynamically DCT-expanding to full resolution for the remaining steps, it significantly reduces GPU compute time while preserving sharp details and joint audio-video synchronization.
+An adaptive, progressive-resolution diffusion sampler for **MiniMax-H3** (joint Video + Audio) in ComfyUI.
 
-Optimized for **Turbo LoRAs (4, 6, 8, 10, 12 steps)** and **Standard Schedules (20–25 steps)**.
+By generating the early layout and motion at lower spatial resolution (e.g., 50%) and dynamically expanding to full resolution with Discrete Cosine Transform (DCT) alignment, this node achieves **up to a ~40% render time reduction** while keeping full-resolution details and native stereo audio synchronization.
 
----
-
-## ⚡ Features
-
-- **Adaptive Step Allocation**: Automatically scales progressive stage boundaries for any schedule length (from 4-step Turbo LoRAs up to 30+ base steps).
-- **Manual Coarse Override**: Direct knob (`coarse_steps_override`) to tune exactly how many low-res steps to run.
-- **Audio-Video Consistency**: Preserves MiniMax-H3's native stereo audio track across progressive resolution transitions.
-- **Lightweight & Self-Contained**: Pure PyTorch implementation with zero extra dependencies.
+Optimized for **Turbo LoRAs (4, 6, 8, 10, 12 steps)** as well as **Standard Schedules (20–25 steps)**.
 
 ---
 
-## 📦 Installation
+## 🎥 Demos & Comparisons
 
-1. Navigate to your ComfyUI `custom_nodes` folder:
-   ```bash
-   cd ComfyUI/custom_nodes/
-   git clone https://github.com/YOUR_USERNAME/ComfyUI-MiniMax-H3-SPEED.git
+### ⚡ SPEED Sampler (10 Steps — 175 seconds)
+
+https://github.com/user-attachments/assets/f821907e-b659-4706-a426-993c67f90b42
+
+---
+
+### ⏱️ Standard Baseline (10 Steps — 286 seconds)
+
+https://github.com/user-attachments/assets/13b990f4-2195-40a2-9d00-2ccd0bc0ae0b
+
+---
+
+## 📊 Real-World Benchmark (MiniMax-H3 Turbo)
+
+Tested on a 10-step schedule:
+
+| Mode | Generation Time | Speedup Factor | Time Saved |
+| :--- | :--- | :--- | :--- |
+| **Standard Baseline** | `286s` | 1.00× | 0s |
+| **SPEED Sampler** | **`175s`** | **1.63× (+63% throughput)** | **-111s (~39% faster)** |
+
+---
+
+## 🔌 Workflow Connection Guide
+
+Place the **`MiniMax H3 SPEED — Sampler`** in your sampling block. It replaces the default `KSampler` / `SamplerCustomAdvanced` combo.
+
+### 🖼️ Workflow Screenshot
+<!-- Place your workflow screenshot here -->
+<img width="1301" height="633" alt="pythonw_nvlxCCxcJV" src="https://github.com/user-attachments/assets/e8252b08-e347-42d8-b68f-8f359882823c" />
+
+
+---
+
+### 🧩 Node Connections
+
+```text
+┌─────────────────┐
+│   RandomNoise   │──(NOISE)──────────────┐
+└─────────────────┘                       │
+┌─────────────────┐                       ▼
+│   BasicGuider   │──(GUIDER)──►┌───────────────────────────┐
+└─────────────────┘             │                           │──(output)──►┌──────────────┐──► Images ──┐
+┌─────────────────┐             │  MiniMax H3 SPEED Sampler │             │  VAE Decode  │             │
+│  BasicScheduler │──(SIGMAS)──►│                           │             └──────────────┘             ▼
+└─────────────────┘             │                           │             ┌──────────────┐      ┌─────────────┐
+┌─────────────────┐             │                           │──(output)──►│  VAE Decode  │──► Audio ──►│Create Video │
+│ ImageToVideo /  │──(LATENT)──►└───────────────────────────┘             │    Audio     │      └─────────────┘
+│  Empty Latent   │                                                       └──────────────┘             ▲
+└─────────────────┘                                                                                    │
+                                                                               (fps / bit_depth) ──────┘
+
+                                                                               
