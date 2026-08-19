@@ -43,7 +43,8 @@ Place the **`MiniMax H3 SPEED — Sampler`** in your sampling block. It replaces
 
 ### 🖼️ Workflow Screenshot
 <!-- Place your workflow screenshot here -->
-![Workflow Diagram](assets/workflow_screenshot.png)
+![Workflow Diagram](<img width="1301" height="633" alt="pythonw_nvlxCCxcJV" src="https://github.com/user-attachments/assets/e8252b08-e347-42d8-b68f-8f359882823c" />
+)
 
 ---
 
