@@ -14,12 +14,13 @@ Optimized for **Turbo LoRAs (4, 6, 8, 10, 12 steps)** as well as **Standard Sche
 
 ## 🎥 Demos & Comparisons
 
-<!-- Replace these video paths with your uploaded video links or repository assets -->
-| Standard Sampler (10 Steps) | SPEED Sampler (10 Steps — ~39% Faster) |
-| :---: | :---: |
-| <video src="Assets/video_without_speed.mp4" controls width="100%"></video> | <video src="Assets/video_with_speed.mp4" controls width="100%"></video> |
-| *286 seconds* | *175 seconds (1.63× speedup)* |
+### ⚡ SPEED Sampler (10 Steps — 175 seconds)
+https://github.com/Ercelcan/ComfyUI-MiniMax-H3-SPEED/raw/feature/adaptive-speed-sampler/Assets/video_with_speed.mp4
 
+---
+
+### ⏱️ Standard Baseline (10 Steps — 286 seconds)
+https://github.com/Ercelcan/ComfyUI-MiniMax-H3-SPEED/raw/feature/adaptive-speed-sampler/Assets/video_without_speed.mp4
 ---
 
 ## 📊 Real-World Benchmark (MiniMax-H3 Turbo)
