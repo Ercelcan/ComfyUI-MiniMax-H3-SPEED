@@ -1,7 +1,9 @@
 """Self-contained MiniMax-H3 SPEED Sampler node.
 
-Combines DCT spectral expand, flow alignment, and adaptive stage execution
-into a single file with no external sub-package requirements.
+Supports:
+- Text-to-Video (T2V): Full multi-stage SPEED progressive acceleration (~40% faster).
+- Reference-to-Video (R2V): Full multi-stage SPEED progressive acceleration.
+- Image-to-Video (I2V FL2V Keyframes): Automatic full-grid safe alignment.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import torch
+import comfy.model_management
 import comfy.nested_tensor
 import comfy.samplers
 import comfy.utils
@@ -75,7 +78,7 @@ def spectral_expand_dct(value: torch.Tensor, target_hw: tuple[int, int], sigma: 
 
 
 # ---------------------------------------------------------------------------
-# 2. Flow & Audio-Video Alignment Math
+# 2. Flow & Alignment Math
 # ---------------------------------------------------------------------------
 
 def aligned_speed_sigma(sigma: float, resolution_ratio: float) -> tuple[float, float]:
@@ -128,12 +131,22 @@ def _active_av_shifts(guider):
     return float(video_shift), float(audio_shift), float(video_shift) / float(audio_shift)
 
 
-def _capture():
-    state = {}
-    def callback(step, x0, x, total_steps):
-        state["x0"] = x0
-        state["x"] = x
-    return state, callback
+def _detect_pixel_anchor_keyframing(guider) -> bool:
+    """Detect if conditioning contains hardcoded spatial keyframe tokens."""
+    conds = getattr(guider, "conds", {})
+    if not isinstance(conds, dict):
+        return False
+    for k, v in conds.items():
+        if isinstance(v, (list, tuple)):
+            for item in v:
+                if isinstance(item, (list, tuple)) and len(item) > 1 and isinstance(item[1], dict):
+                    d = item[1]
+                    for d_key, d_val in d.items():
+                        if d_key in ("cond_video_rows", "img_update", "concat_latent_image", "clean_latents", "keyframes"):
+                            return True
+                        if isinstance(d_val, torch.Tensor) and d_val.ndim >= 2 and d_val.shape[-1] == 96:
+                            return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -152,14 +165,20 @@ def run_progressive_stages(noise, guider, sigmas: torch.Tensor, latent: dict, co
     video_shift, audio_shift, audio_scale = _active_av_shifts(guider)
 
     scales = config.scales
-    n_stages = len(scales)
-    full_h, full_w = full_video.shape[-2:]
-    stage_hw = [(max(1, round(full_h * s)), max(1, round(full_w * s))) for s in scales]
     transition_steps = config.transition_steps
 
-    # Stage 1: Coarse latent initialization
+    n_stages = len(scales)
+    full_h, full_w = full_video.shape[-2:]
+    stage_hw = [(max(2, round(full_h * s)), max(2, round(full_w * s))) for s in scales]
+
+    # Coarse Stage Setup
     s0_h, s0_w = stage_hw[0]
-    coarse_samples = _pack_tensor(full_video.new_zeros(full_video.shape[:-2] + (s0_h, s0_w)), torch.zeros_like(full_audio))
+    if torch.count_nonzero(full_video) > 0 and (s0_h != full_h or s0_w != full_w):
+        init_video = lowpass_dct(full_video, (s0_h, s0_w))
+    else:
+        init_video = full_video.clone() if (s0_h == full_h and s0_w == full_w) else full_video.new_zeros(full_video.shape[:-2] + (s0_h, s0_w))
+
+    coarse_samples = _pack_tensor(init_video, torch.zeros_like(full_audio))
     cur_latent = latent.copy()
     cur_latent["samples"] = coarse_samples
 
@@ -167,7 +186,10 @@ def run_progressive_stages(noise, guider, sigmas: torch.Tensor, latent: dict, co
     if config.noise_policy == "coupled_full_grid":
         full_noise = noise.generate_noise(latent) if hasattr(noise, "generate_noise") else noise
         full_noise_video, full_noise_audio = _unpack_tensor(full_noise)
-        coarse_noise = _pack_tensor(lowpass_dct(full_noise_video, (s0_h, s0_w)), full_noise_audio)
+        if s0_h != full_h or s0_w != full_w:
+            coarse_noise = _pack_tensor(lowpass_dct(full_noise_video, (s0_h, s0_w)), full_noise_audio)
+        else:
+            coarse_noise = full_noise
     else:
         coarse_noise = noise.generate_noise(cur_latent) if hasattr(noise, "generate_noise") else cur_latent["samples"]
 
@@ -175,20 +197,23 @@ def run_progressive_stages(noise, guider, sigmas: torch.Tensor, latent: dict, co
     stage_start_pub = coarse_noise
     stage_start_latent = cur_latent["samples"]
     last_public = None
-    last_capture = None
+    last_capture = {}
 
     seed = getattr(noise, "seed", None)
 
     for stage_idx in range(n_stages - 1):
         boundary = min(int(transition_steps[stage_idx]), len(current_sigmas) - 2)
-        capture, callback = _capture()
         stage_sigmas = current_sigmas[: boundary + 1]
+
+        def callback(step, x0, x, total_steps):
+            last_capture["x0"] = x0
+            last_capture["x"] = x
 
         public = guider.sample(
             stage_start_pub, stage_start_latent, sampler, stage_sigmas,
             callback=callback, disable_pbar=disable_pbar, seed=seed
         )
-        last_public, last_capture = public, capture
+        last_public = public
         public_video, public_audio = _unpack_tensor(public)
         q = float(current_sigmas[boundary])
 
@@ -209,8 +234,8 @@ def run_progressive_stages(noise, guider, sigmas: torch.Tensor, latent: dict, co
         old_audio_sigma = time_shift_sigma(q, video_shift, audio_shift)
         new_audio_sigma = time_shift_sigma(new_q, video_shift, audio_shift)
 
-        if "x0" in capture:
-            _, clean_audio = _unpack_tensor(capture["x0"])
+        if "x0" in last_capture:
+            _, clean_audio = _unpack_tensor(last_capture["x0"])
             transitioned_audio = clock_reindex_audio_state(internal_audio, clean_audio, q, new_q, old_audio_sigma, new_audio_sigma, audio_scale)
         else:
             transitioned_audio = internal_audio
@@ -220,13 +245,19 @@ def run_progressive_stages(noise, guider, sigmas: torch.Tensor, latent: dict, co
         stage_start_latent = _pack_tensor(torch.zeros_like(transitioned_video), torch.zeros_like(transitioned_audio))
         current_sigmas = next_sigmas
 
-    # Final Stage
-    final_capture, final_callback = _capture()
+        del public, internal_video, internal_audio, expanded_video
+        comfy.model_management.soft_empty_cache()
+
+    # Final Full-Res Stage
+    def final_callback(step, x0, x, total_steps):
+        last_capture["x0"] = x0
+        last_capture["x"] = x
+
     final_public = guider.sample(
         stage_start_pub, stage_start_latent, sampler, current_sigmas,
         callback=final_callback, disable_pbar=disable_pbar, seed=seed
     )
-    last_public, last_capture = final_public, final_capture
+    last_public = final_public
 
     out = latent.copy()
     out.pop("downscale_ratio_spacial", None)
@@ -234,7 +265,7 @@ def run_progressive_stages(noise, guider, sigmas: torch.Tensor, latent: dict, co
     out["samples"] = last_public
 
     denoised = out
-    if last_capture is not None and "x0" in last_capture:
+    if "x0" in last_capture:
         x0 = last_capture["x0"]
         if getattr(x0, "is_nested", False):
             x0_streams = list(x0.unbind())
@@ -317,19 +348,29 @@ class MiniMaxH3SPEEDSampler:
                     "default": 0, "min": 0, "max": 50, "step": 1,
                     "tooltip": "Manual coarse steps for Turbo LoRAs (e.g. 1 or 2). Set 0 for auto."
                 }),
+                "sampling_mode": (["Auto", "Force Progressive (T2V / Reference)", "Full Resolution (I2V Keyframes)"], {
+                    "default": "Auto"
+                }),
                 "noise_policy": (["direct_coarse", "coupled_full_grid"], {"default": "direct_coarse"}),
                 "seed_offset": ("INT", {"default": 10000, "min": 0, "max": 2**31 - 1}),
             },
         }
 
-    def sample(self, noise, guider, sigmas, latent_image, preset, coarse_steps_override=0, noise_policy="direct_coarse", seed_offset=10000):
+    def sample(self, noise, guider, sigmas, latent_image, preset, coarse_steps_override=0, sampling_mode="Auto", noise_policy="direct_coarse", seed_offset=10000):
         total_steps = len(sigmas) - 1
         if total_steps < 1:
             raise ValueError("Sigmas schedule must contain at least 1 step.")
 
-        scales, transition_steps = calculate_adaptive_steps(
-            preset_name=preset, total_steps=total_steps, coarse_override=coarse_steps_override
-        )
+        # Check if hard pixel keyframing (first_frame) is active
+        has_pixel_anchor = _detect_pixel_anchor_keyframing(guider)
+        if sampling_mode == "Full Resolution (I2V Keyframes)" or (sampling_mode == "Auto" and has_pixel_anchor):
+            print("[SPEED Sampler] Info: Detected MiniMax-H3 first/last frame keyframe conditioning. Running full-resolution safe pass.")
+            scales = (1.0,)
+            transition_steps = ()
+        else:
+            scales, transition_steps = calculate_adaptive_steps(
+                preset_name=preset, total_steps=total_steps, coarse_override=coarse_steps_override
+            )
 
         full_video, _ = _unpack_tensor(latent_image.get("samples"))
 
