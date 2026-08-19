@@ -17,7 +17,7 @@ Optimized for **Turbo LoRAs (4, 6, 8, 10, 12 steps)** as well as **Standard Sche
 <!-- Replace these video paths with your uploaded video links or repository assets -->
 | Standard Sampler (10 Steps) | SPEED Sampler (10 Steps — ~39% Faster) |
 | :---: | :---: |
-| <video src="assets/video_without_speed.mp4" controls width="100%"></video> | <video src="assets/video_with_speed.mp4" controls width="100%"></video> |
+| <video src="Assets/video_without_speed.mp4" controls width="100%"></video> | <video src="Assets/video_with_speed.mp4" controls width="100%"></video> |
 | *286 seconds* | *175 seconds (1.63× speedup)* |
 
 ---
